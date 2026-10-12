@@ -1,0 +1,90 @@
+# Xcode projesi bu dosyadan üretilir:  brew install xcodegen  &&  xcodegen generate
+name: PadTrack
+
+options:
+  bundleIdPrefix: io.github.padtrack
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "16.0"
+    macOS: "13.0"
+
+packages:
+  PadTrackCore:
+    path: Packages/PadTrackCore
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    # Apple ID'nin Team ID'sini buraya yazarsan her "xcodegen generate" sonrası tekrar seçmen gerekmez.
+    # Boş kalırsa Xcode'da her iki hedef için Signing & Capabilities › Team'den seç.
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  PadTrack-iPad:
+    type: application
+    platform: iOS
+    sources:
+      - path: iPad
+    dependencies:
+      - package: PadTrackCore
+    info:
+      path: iPad/Info.plist
+      properties:
+        CFBundleDisplayName: PadTrack
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSLocalNetworkUsageDescription: "PadTrack, dokunuşlarını Mac'ine Wi‑Fi üzerinden göndermek için yerel ağı kullanır."
+        NSBonjourServices:
+          - _padtrack._udp
+        NSBluetoothAlwaysUsageDescription: "PadTrack, Wi‑Fi ve kablo yokken Mac'ine Bluetooth ile bağlanabilir."
+    settings:
+      base:
+        PRODUCT_NAME: PadTrack
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.padtrack.ipad
+        # iPhone da çalışır (1), ama asıl hedef iPad (2).
+        TARGETED_DEVICE_FAMILY: "1,2"
+    scheme: {}
+
+  PadTrack-Mac:
+    type: application
+    platform: macOS
+    sources:
+      - path: Mac
+    dependencies:
+      - package: PadTrackCore
+    info:
+      path: Mac/Info.plist
+      properties:
+        CFBundleDisplayName: PadTrack
+        LSUIElement: true
+        NSLocalNetworkUsageDescription: "PadTrack, iPad'den gelen dokunuşları Wi‑Fi üzerinden almak için yerel ağı kullanır."
+        NSBonjourServices:
+          - _padtrack._udp
+        NSBluetoothAlwaysUsageDescription: "PadTrack, iPad'e Bluetooth ile bağlanabilir."
+    entitlements:
+      path: Mac/PadTrack.entitlements
+      properties:
+        # İmleç olayları göndermek ve usbmuxd soketine erişmek sandbox dışında çalışmayı gerektirir.
+        com.apple.security.app-sandbox: false
+    settings:
+      base:
+        PRODUCT_NAME: PadTrack
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.padtrack.mac
+        ENABLE_HARDENED_RUNTIME: NO
+    scheme: {}

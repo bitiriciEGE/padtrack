@@ -1,0 +1,26 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Core tests
+        run: swift test --package-path Packages/PadTrackCore
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build Mac app
+        run: xcodebuild -project PadTrack.xcodeproj -scheme PadTrack-Mac -destination 'generic/platform=macOS' CODE_SIGNING_ALLOWED=NO build
+
+      - name: Build iPad app
+        run: xcodebuild -project PadTrack.xcodeproj -scheme PadTrack-iPad -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
