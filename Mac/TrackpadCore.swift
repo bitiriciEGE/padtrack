@@ -2,6 +2,7 @@ import Foundation
 import Network
 import SystemConfiguration
 import PadTrackCore
+import PadTrackWeb
 
 /// What the menu shows. Produced on the core queue, consumed on the main thread.
 struct CoreSnapshot: Equatable {
@@ -28,6 +29,21 @@ struct CoreSnapshot: Equatable {
     var note: String?
     /// The most recent gesture the engine recognised, for checking what the Mac thinks you did.
     var lastGesture: String?
+    var web = Web()
+
+    /// The Safari client: the Mac serves a touch page and the iPad opens it in Safari.
+    struct Web: Equatable {
+        enum Server: Equatable {
+            case off
+            case starting
+            case listening(port: UInt16)
+            case failed(String)
+        }
+        var server: Server = .off
+        /// One-time key for the QR code; changes after every successful pairing.
+        var pairingKey = ""
+        var pairedDevices = 0
+    }
 }
 
 /// Everything that touches input runs on one serial queue: link callbacks, the gesture
@@ -38,6 +54,8 @@ struct CoreSnapshot: Equatable {
 ///  - USB is trusted (physical cable, and the iPad itself asked "Trust this computer?").
 ///  - A Wi‑Fi/Bluetooth device is trusted after the user clicked "Bağlan" for it once, or after
 ///    it was connected by cable once. Its persistent device ID is remembered.
+///  - A Safari page is only listed once it proved itself to the web server with the one-time
+///    QR key or the device token it got at pairing (see WebPairing).
 final class TrackpadCore {
     var onSnapshot: ((CoreSnapshot) -> Void)?
 
@@ -48,6 +66,7 @@ final class TrackpadCore {
             case wifi(NWEndpoint)
             case usb(deviceID: Int)
             case bluetooth(UUID)
+            case web(sessionID: Int)
         }
         let id: String
         var name: String
@@ -101,14 +120,21 @@ final class TrackpadCore {
     private var trustedDevices: Set<String>
     private var trustedBluetooth: Set<String>
 
+    private let webPairing: WebPairing
+    private var webServer: WebServer?
+    private var webEnabled: Bool
+    private var webSessions: [Int: WebSession] = [:]
+
     private var housekeeping: DispatchSourceTimer?
     private var housekeepingTicks = 0
     private var momentumTimer: DispatchSourceTimer?
     private var lastMomentumTick: UInt64 = 0
 
-    init(settings: GestureSettings, autoConnect: Bool) {
+    init(settings: GestureSettings, autoConnect: Bool, webEnabled: Bool) {
         engine = GestureEngine(settings: settings)
         self.autoConnect = autoConnect
+        self.webEnabled = webEnabled
+        webPairing = WebPairing(store: UserDefaultsPairingStore())
         hostName = (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "Mac"
         let defaults = UserDefaults.standard
         trustedDevices = Set(defaults.stringArray(forKey: Keys.trustedDevices) ?? [])
@@ -168,6 +194,31 @@ final class TrackpadCore {
             self.trustedDevices.removeAll()
             self.trustedBluetooth.removeAll()
             self.saveTrust()
+            if let server = self.webServer {
+                server.forgetAllDevices()
+            } else {
+                self.webPairing.forgetAll()
+            }
+            self.publish()
+        }
+    }
+
+    func setWebEnabled(_ enabled: Bool) {
+        queue.async {
+            self.webEnabled = enabled
+            self.applyWebEnabled()
+            self.publish()
+        }
+    }
+
+    /// Makes the QR code currently shown useless (e.g. someone photographed it).
+    func regenerateWebPairingKey() {
+        queue.async {
+            if let server = self.webServer {
+                server.regeneratePairingKey()
+            } else {
+                self.webPairing.regenerateKey()
+            }
             self.publish()
         }
     }
@@ -190,6 +241,8 @@ final class TrackpadCore {
         bluetooth.start()
         self.bluetooth = bluetooth
 
+        applyWebEnabled()
+
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
         timer.setEventHandler { [weak self] in self?.housekeep() }
@@ -197,6 +250,28 @@ final class TrackpadCore {
         housekeeping = timer
 
         publish()
+    }
+
+    private func applyWebEnabled() {
+        if webEnabled, webServer == nil {
+            let server = WebServer(queue: queue, port: PadTrackProtocol.webPort, assets: Self.loadWebAssets(),
+                                   pairing: webPairing, hostName: hostName)
+            server.onStateChange = { [weak self] _ in self?.publish() }
+            server.onSessionsChange = { [weak self] sessions in self?.updateWeb(sessions) }
+            server.onPairingChange = { [weak self] in self?.publish() }
+            webServer = server
+            server.start()
+        } else if !webEnabled, let server = webServer {
+            webServer = nil
+            // Open pages are told to close; an active Safari link reports it and is dropped.
+            server.stop()
+        }
+    }
+
+    /// The page, its scripts and styles, bundled from WebClient/.
+    private static func loadWebAssets() -> [String: WebAsset] {
+        guard let directory = Bundle.main.url(forResource: "WebClient", withExtension: nil) else { return [:] }
+        return WebAsset.load(directory: directory)
     }
 
     // MARK: Discovery
@@ -216,6 +291,14 @@ final class TrackpadCore {
     private func updateBluetooth(_ devices: [BLEDiscovery.Device]) {
         replaceCandidates(of: .bluetooth, with: devices.map {
             Candidate(id: "ble:\($0.id.uuidString)", name: $0.name, transport: .bluetooth, route: .bluetooth($0.id), deviceID: nil)
+        })
+    }
+
+    /// Every entry already authenticated with the web server (QR key or device token).
+    private func updateWeb(_ sessions: [WebSession]) {
+        webSessions = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
+        replaceCandidates(of: .web, with: sessions.map {
+            Candidate(id: "web:\($0.id)", name: $0.device.name, transport: .web, route: .web(sessionID: $0.id), deviceID: nil)
         })
     }
 
@@ -248,6 +331,8 @@ final class TrackpadCore {
             return trustedDevices.contains(id)
         case .bluetooth(let peripheral):
             return trustedBluetooth.contains(peripheral.uuidString)
+        case .web:
+            return true
         }
     }
 
@@ -299,6 +384,9 @@ final class TrackpadCore {
         case .bluetooth(let id):
             guard let bleLink = bluetooth?.makeLink(for: id) else { return }
             link = bleLink
+        case .web(let sessionID):
+            guard let session = webSessions[sessionID] else { return }
+            link = WebLink(session: session, queue: queue)
         }
         link.onMessage = { [weak self, weak link] message in
             guard let self, let link else { return }
@@ -367,8 +455,10 @@ final class TrackpadCore {
 
         // Defense in depth: an automatic Wi‑Fi/Bluetooth connection must also prove, in its
         // own hello, that it is a device the user approved before.
+        // USB and Safari connections were already authenticated before they became candidates.
         let trustedByHello = !hello.deviceID.isEmpty && trustedDevices.contains(hello.deviceID)
-        if candidate.transport != .usb && !probe.manual && !trustedByHello {
+        let preAuthenticated = candidate.transport == .usb || candidate.transport == .web
+        if !preAuthenticated && !probe.manual && !trustedByHello {
             self.probe = nil
             probe.link.send(.bye)
             probe.link.close()
@@ -385,7 +475,8 @@ final class TrackpadCore {
         }
         run(engine.reset())
 
-        remember(candidate, hello: hello)
+        // Safari pages have their own trust list (device tokens), kept by WebPairing.
+        if candidate.transport != .web { remember(candidate, hello: hello) }
         if !hello.deviceName.isEmpty {
             candidates[probe.candidateID]?.name = hello.deviceName
         }
@@ -539,6 +630,19 @@ final class TrackpadCore {
         snapshot.paused = paused
         snapshot.note = note
         snapshot.lastGesture = lastGesture
+
+        var web = CoreSnapshot.Web()
+        if webEnabled {
+            switch webServer?.state {
+            case .listening(let port)?: web.server = .listening(port: port)
+            case .failed(let reason)?: web.server = .failed(reason)
+            default: web.server = .starting
+            }
+        }
+        web.pairingKey = webPairing.pairingKey
+        web.pairedDevices = webPairing.devices.count
+        snapshot.web = web
+
         onSnapshot?(snapshot)
     }
 }

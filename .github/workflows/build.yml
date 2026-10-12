@@ -11,8 +11,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Core tests
-        run: swift test --package-path Packages/PadTrackCore
+      - name: Core + web server tests
+        run: |
+          set -o pipefail
+          swift test --package-path Packages/PadTrackCore 2>&1 | tee core-tests.log
+
+      - name: Web client tests
+        run: |
+          set -o pipefail
+          node --test WebClientTests/*.test.mjs 2>&1 | tee web-client-tests.log
 
       - name: Generate Xcode project
         run: |
@@ -20,7 +27,15 @@ jobs:
           xcodegen generate
 
       - name: Build Mac app
-        run: xcodebuild -project PadTrack.xcodeproj -scheme PadTrack-Mac -destination 'generic/platform=macOS' CODE_SIGNING_ALLOWED=NO build
+        run: |
+          set -o pipefail
+          xcodebuild -project PadTrack.xcodeproj -scheme PadTrack-Mac -destination 'generic/platform=macOS' CODE_SIGNING_ALLOWED=NO build 2>&1 | tee mac-build.log
 
       - name: Build iPad app
-        run: xcodebuild -project PadTrack.xcodeproj -scheme PadTrack-iPad -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+        run: |
+          set -o pipefail
+          xcodebuild -project PadTrack.xcodeproj -scheme PadTrack-iPad -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build 2>&1 | tee ipad-build.log
+
+      - name: Report
+        if: always()
+        run: bash .github/scripts/annotate.sh core-tests.log web-client-tests.log mac-build.log ipad-build.log

@@ -4,6 +4,7 @@ import PadTrackCore
 
 struct MenuContentView: View {
     @EnvironmentObject private var controller: AppController
+    @State private var showPairing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -11,6 +12,8 @@ struct MenuContentView: View {
             if !controller.hasEventAccess { permissionCard }
             Divider()
             devices
+            Divider()
+            webSection
             Divider()
             pointerSettings
             Divider()
@@ -20,6 +23,11 @@ struct MenuContentView: View {
         }
         .padding(14)
         .frame(width: 340)
+        .onAppear {
+            controller.refreshAddresses()
+            // First run: nothing paired yet, so lead with the QR code.
+            if controller.snapshot.web.pairedDevices == 0 && !controller.isConnected { showPairing = true }
+        }
     }
 
     // MARK: Sections
@@ -66,7 +74,7 @@ struct MenuContentView: View {
         VStack(alignment: .leading, spacing: 6) {
             SectionTitle("Cihazlar")
             if controller.snapshot.devices.isEmpty {
-                Text("iPad'de PadTrack'i açın. USB kablo, aynı Wi‑Fi (ya da doğrudan Wi‑Fi) veya Bluetooth yeterli.")
+                Text("iPad'de PadTrack'i açın (uygulama ya da Safari'de eşleştirilmiş sayfa). USB kablo, aynı Wi‑Fi veya Bluetooth yeterli.")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -74,6 +82,107 @@ struct MenuContentView: View {
                 ForEach(controller.snapshot.devices) { device in
                     DeviceRow(device: device) { controller.connect(device.id) }
                 }
+            }
+        }
+    }
+
+    private var webSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                SectionTitle("Safari ile bağlan")
+                Spacer()
+                Toggle("Safari ile bağlan", isOn: $controller.webEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+            }
+            if controller.webEnabled {
+                switch controller.snapshot.web.server {
+                case .failed(let reason):
+                    Label(reason, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                case .listening:
+                    webPairing
+                default:
+                    Text("Başlatılıyor…").font(.caption).foregroundColor(.secondary)
+                }
+            } else {
+                Text("Kapalı: iPad yalnızca PadTrack uygulamasıyla bağlanabilir.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var webPairing: some View {
+        let paired = controller.snapshot.web.pairedDevices
+        Button {
+            showPairing.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "qrcode")
+                Text(showPairing ? "QR kodu gizle" : "iPad'i eşleştir (QR kod)")
+                Spacer()
+                if paired > 0 {
+                    Text("\(paired) eşleşmiş").foregroundColor(.secondary)
+                }
+                Image(systemName: showPairing ? "chevron.up" : "chevron.down")
+                    .foregroundColor(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .font(.callout)
+
+        if showPairing {
+            if let image = controller.qrImage, let address = controller.webAddressText {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(nsImage: image)
+                        .interpolation(.none)
+                        .resizable()
+                        .frame(width: 128, height: 128)
+                        .padding(6)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white))
+                        .accessibilityLabel("Eşleştirme QR kodu")
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("1. iPad'in Kamerası ile okut\n2. Safari'de aç\n3. Paylaş › Ana Ekrana Ekle")
+                            .font(.caption)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("Kod tek kullanımlık: biri okutunca yenilenir.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Picker("Adres", selection: $controller.qrUsesIP) {
+                    Text("Ad (.local)").tag(false)
+                    Text("IP adresi").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+                Text(address)
+                    .font(.caption.monospaced())
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+                HStack {
+                    Button("Bağlantıyı kopyala") { controller.copyPairingLink() }
+                        .help("Evrensel Pano açıksa iPad'de Safari'ye yapıştırabilirsin.")
+                    Button("Yeni kod") { controller.newPairingCode() }
+                        .help("Gösterilen QR kodu geçersiz kılar.")
+                }
+                .controlSize(.small)
+                Text("Kampüs veya misafir Wi‑Fi'sinde .local adresi açılmazsa IP adresini seç.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Ağ bağlantısı yok: Mac'i iPad ile aynı Wi‑Fi'ye bağla.")
+                    .font(.caption)
+                    .foregroundColor(.orange)
             }
         }
     }

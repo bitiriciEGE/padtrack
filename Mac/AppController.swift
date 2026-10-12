@@ -18,25 +18,54 @@ final class AppController: ObservableObject {
         }
     }
 
-    @Published private(set) var snapshot = CoreSnapshot()
+    /// Serve the touch page so an iPad can connect from Safari (no iPad app needed).
+    @Published var webEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(webEnabled, forKey: Keys.webEnabled)
+            core.setWebEnabled(webEnabled)
+        }
+    }
+
+    /// The QR code points at the IP address instead of "name.local" (for networks without mDNS).
+    @Published var qrUsesIP: Bool {
+        didSet {
+            UserDefaults.standard.set(qrUsesIP, forKey: Keys.qrUsesIP)
+            refreshQRCode()
+        }
+    }
+
+    @Published private(set) var snapshot = CoreSnapshot() {
+        didSet {
+            if snapshot.web != oldValue.web { refreshQRCode() }
+        }
+    }
     @Published private(set) var hasEventAccess = CGPreflightPostEventAccess()
+    @Published private(set) var webAddresses = WebAddresses.current()
+    @Published private(set) var qrImage: NSImage?
 
     private let core: TrackpadCore
     private var permissionTimer: Timer?
+    private let networkWatcher = NetworkWatcher()
 
     private enum Keys {
         static let settings = "gestureSettings"
         static let autoConnect = "autoConnect"
+        static let webEnabled = "webClientEnabled"
+        static let qrUsesIP = "webQRUsesIP"
     }
 
     init() {
         let loaded = Self.loadSettings()
-        let auto = UserDefaults.standard.object(forKey: Keys.autoConnect) as? Bool ?? true
+        let defaults = UserDefaults.standard
+        let auto = defaults.object(forKey: Keys.autoConnect) as? Bool ?? true
+        let web = defaults.object(forKey: Keys.webEnabled) as? Bool ?? true
         settings = loaded
         autoConnect = auto
+        webEnabled = web
+        qrUsesIP = defaults.bool(forKey: Keys.qrUsesIP)
         var initial = loaded
         initial.doubleClickInterval = NSEvent.doubleClickInterval
-        core = TrackpadCore(settings: initial, autoConnect: auto)
+        core = TrackpadCore(settings: initial, autoConnect: auto, webEnabled: web)
 
         core.onSnapshot = { [weak self] snapshot in
             DispatchQueue.main.async {
@@ -45,6 +74,9 @@ final class AppController: ObservableObject {
             }
         }
         core.start()
+
+        networkWatcher.onChange = { [weak self] in self?.refreshAddresses() }
+        networkWatcher.start()
 
         if !hasEventAccess {
             // Shows the system prompt that leads to Privacy & Security › Accessibility.
@@ -87,6 +119,51 @@ final class AppController: ObservableObject {
 
     func resetSettings() { settings = GestureSettings() }
     func forgetTrustedDevices() { core.forgetTrustedDevices() }
+
+    // MARK: Safari client
+
+    /// The host the QR code points at; nil when there is no usable network address.
+    var webHost: String? {
+        qrUsesIP ? webAddresses.ipv4 : (webAddresses.localHostName ?? webAddresses.ipv4)
+    }
+
+    var webPort: UInt16? {
+        if case .listening(let port) = snapshot.web.server { return port }
+        return nil
+    }
+
+    /// Address without the key, to show in the menu.
+    var webAddressText: String? {
+        guard let host = webHost, let port = webPort else { return nil }
+        return WebPairingLink.address(host: host, port: port)
+    }
+
+    /// Full one-time pairing link (what the QR code holds).
+    var pairingLink: String? {
+        guard let host = webHost, let port = webPort else { return nil }
+        return WebPairingLink.url(host: host, port: port, key: snapshot.web.pairingKey)
+    }
+
+    /// With Universal Clipboard the link can be pasted straight into Safari on the iPad.
+    func copyPairingLink() {
+        guard let link = pairingLink else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(link, forType: .string)
+    }
+
+    func newPairingCode() { core.regenerateWebPairingKey() }
+
+    func refreshAddresses() {
+        let current = WebAddresses.current()
+        if current != webAddresses {
+            webAddresses = current
+            refreshQRCode()
+        }
+    }
+
+    private func refreshQRCode() {
+        qrImage = pairingLink.flatMap(QRCodeRenderer.image(for:))
+    }
 
     func openAccessibilitySettings() {
         CGRequestPostEventAccess()

@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PadTrack">
+<meta name="theme-color" content="#121214">
+<meta name="format-detection" content="telephone=no">
+<title>PadTrack</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #121214;
+    --text: rgba(255, 255, 255, 0.92);
+    --muted: rgba(255, 255, 255, 0.55);
+    --faint: rgba(255, 255, 255, 0.3);
+    --pill: rgba(255, 255, 255, 0.06);
+    --sheet: #1c1c1f;
+    --line: rgba(255, 255, 255, 0.1);
+    --green: #30d158;
+    --orange: #ff9f0a;
+    --red: #ff453a;
+    --accent: #0a84ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-text-size-adjust: 100%;
+  }
+  body { position: fixed; inset: 0; }
+
+  #surface {
+    position: fixed;
+    inset: 0;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .finger {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    pointer-events: none;
+    will-change: transform;
+  }
+
+  .top {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: calc(env(safe-area-inset-top) + 10px) calc(env(safe-area-inset-right) + 16px) 0 calc(env(safe-area-inset-left) + 16px);
+    pointer-events: none;
+  }
+  .pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 70vw;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: var(--pill);
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .pill .dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--orange);
+  }
+  .pill[data-state="active"] .dot { background: var(--green); }
+  .pill span:last-child { overflow: hidden; text-overflow: ellipsis; }
+  .icon-button {
+    pointer-events: auto;
+    border: 0;
+    background: none;
+    padding: 12px;
+    margin: -6px -12px 0 0;
+    color: var(--faint);
+    touch-action: manipulation;
+  }
+  .icon-button svg { display: block; width: 22px; height: 22px; }
+
+  .hint {
+    position: fixed;
+    left: 50%;
+    bottom: calc(env(safe-area-inset-bottom) + 18px);
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: min(560px, calc(100vw - 32px));
+    padding: 10px 10px 10px 16px;
+    border-radius: 14px;
+    background: var(--sheet);
+    border: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .hint b { color: var(--text); font-weight: 600; }
+  .hint button {
+    flex: none;
+    border: 0;
+    background: var(--pill);
+    color: var(--muted);
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    font-size: 16px;
+  }
+
+  .sheet {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 16px);
+    background: rgba(0, 0, 0, 0.55);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .sheet[hidden], .hint[hidden], [hidden] { display: none !important; }
+  .card {
+    width: 100%;
+    max-width: 460px;
+    margin: auto;
+    padding: 22px;
+    border-radius: 18px;
+    background: var(--sheet);
+    border: 1px solid var(--line);
+  }
+  .card h1 { margin: 0 0 6px; font-size: 20px; font-weight: 650; }
+  .card h2 { margin: 18px 0 6px; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .card p { margin: 0 0 10px; color: var(--muted); }
+  .card ol, .card ul { margin: 0; padding-left: 20px; color: var(--muted); }
+  .card li { margin: 0 0 8px; }
+  .card li b, .card p b { color: var(--text); font-weight: 600; }
+  .notice { color: var(--orange) !important; }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row .value { color: var(--muted); text-align: right; }
+  .switch { position: relative; width: 51px; height: 31px; flex: none; }
+  .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; }
+  .switch span {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: rgba(120, 120, 128, 0.32);
+    transition: background 0.2s;
+    pointer-events: none;
+  }
+  .switch span::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 27px;
+    height: 27px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.2s;
+  }
+  .switch input:checked + span { background: var(--green); }
+  .switch input:checked + span::after { transform: translateX(20px); }
+  .actions { display: flex; gap: 10px; margin-top: 18px; }
+  .actions button {
+    flex: 1;
+    border: 0;
+    border-radius: 12px;
+    padding: 12px;
+    font: inherit;
+    font-weight: 600;
+    background: var(--pill);
+    color: var(--text);
+  }
+  .actions .primary { background: var(--accent); }
+  .actions .danger { color: var(--red); }
+</style>
+</head>
+<body>
+  <div id="surface" aria-label="Trackpad yüzeyi"></div>
+
+  <header class="top">
+    <div id="status" class="pill" data-state="idle" role="status">
+      <span class="dot"></span><span id="status-text">Başlatılıyor…</span>
+    </div>
+    <button id="settings-button" class="icon-button" aria-label="Ayarlar">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6a.5.5 0 0 0 .1-.6l-2-3.5a.5.5 0 0 0-.6-.2l-2.5 1a7.4 7.4 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.4h-4a.5.5 0 0 0-.5.4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.5a.5.5 0 0 0 .1.6L4.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6a.5.5 0 0 0-.1.6l2 3.5c.1.2.4.3.6.2l2.5-1c.5.4 1.1.7 1.7 1l.4 2.6c0 .2.3.4.5.4h4c.2 0 .5-.2.5-.4l.4-2.6c.6-.3 1.2-.6 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.5a.5.5 0 0 0-.1-.6L19.4 13ZM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"/></svg>
+    </button>
+  </header>
+
+  <div id="home-hint" class="hint" hidden>
+    <span>İpucu: Safari'de <b>Paylaş › Ana Ekrana Ekle</b> ile PadTrack tam ekran ve tek dokunuşla açılır.</span>
+    <button id="home-hint-close" aria-label="Kapat">×</button>
+  </div>
+
+  <section id="pairing" class="sheet" hidden>
+    <div class="card">
+      <h1>Bu iPad henüz eşleşmedi</h1>
+      <p id="pairing-reason" class="notice" hidden></p>
+      <ol>
+        <li>Mac'te menü çubuğundaki <b>PadTrack</b> simgesine tıkla.</li>
+        <li><b>Safari ile bağlan</b> bölümündeki QR kodu iPad'in <b>Kamera</b>sıyla okut.</li>
+        <li>Açılan sayfada <b>Paylaş › Ana Ekrana Ekle</b> de; sonraki seferlerde simgeden açman yeter.</li>
+      </ol>
+      <p id="standalone-note" hidden>Ana ekrandaki simgeden açtıysan: QR kodu okuttuktan sonra açılan Safari sayfasını Ana Ekrana yeniden ekle, eski simgeyi sil.</p>
+    </div>
+  </section>
+
+  <section id="settings" class="sheet" hidden>
+    <div class="card">
+      <h1>PadTrack</h1>
+      <div class="row"><span>Durum</span><span id="settings-status" class="value"></span></div>
+      <label class="row"><span>Parmakları göster</span><span class="switch"><input id="show-touches" type="checkbox"><span></span></span></label>
+      <h2>İpuçları</h2>
+      <ul>
+        <li>4–5 parmak jestleri iPad'in kendi jestleriyle çakışmasın: <b>Ayarlar › Çoklu Görev ve Jestler › Jestler</b> kapalı.</li>
+        <li>Ekran kendiliğinden kapanıyorsa: <b>Ayarlar › Ekran ve Parlaklık › Otomatik Kilit</b>.</li>
+        <li>Ana Ekrana eklenmiş PadTrack tam ekran açılır; Safari'nin adres çubuğu ve kenar jestleri araya girmez.</li>
+        <li>Mac menüsündeki <b>Otomatik bağlan</b> kapalıysa Mac'te cihazın yanındaki <b>Bağlan</b>'a tıkla.</li>
+      </ul>
+      <div class="actions">
+        <button id="forget" class="danger">Eşleşmeyi kaldır</button>
+        <button id="settings-done" class="primary">Bitti</button>
+      </div>
+    </div>
+  </section>
+
+  <script src="protocol.js"></script>
+  <script src="client.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

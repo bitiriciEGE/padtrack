@@ -66,14 +66,20 @@ targets:
     platform: macOS
     sources:
       - path: Mac
+      # The Safari touch page, copied into the app as a folder and served by the web server.
+      - path: WebClient
+        type: folder
     dependencies:
       - package: PadTrackCore
+        product: PadTrackCore
+      - package: PadTrackCore
+        product: PadTrackWeb
     info:
       path: Mac/Info.plist
       properties:
         CFBundleDisplayName: PadTrack
         LSUIElement: true
-        NSLocalNetworkUsageDescription: "PadTrack, iPad'den gelen dokunuşları Wi‑Fi üzerinden almak için yerel ağı kullanır."
+        NSLocalNetworkUsageDescription: "PadTrack, iPad'den (uygulama veya Safari) gelen dokunuşları Wi‑Fi üzerinden almak için yerel ağı kullanır."
         NSBonjourServices:
           - _padtrack._udp
         NSBluetoothAlwaysUsageDescription: "PadTrack, iPad'e Bluetooth ile bağlanabilir."
