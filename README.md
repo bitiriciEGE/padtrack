@@ -2,12 +2,18 @@
 
 iPad ekranına dokunduğun her şey Mac'te gerçek bir trackpad gibi davranır: imleç, dokunarak tıklama, iki parmakla sağ tık, iki parmakla pürüzsüz kaydırma (momentumlu), sıkıştırarak yakınlaştırma, 3/4 parmakla Mission Control ve Spaces geçişi.
 
-Bağlantı üç yoldan biriyle kurulur, en hızlısı otomatik seçilir:
+İki şekilde kullanılır:
+
+- **Ücretsiz sürüm (Safari):** iPad'e hiçbir şey kurulmaz. Mac uygulaması yerel bir web sayfası sunar, iPad bu sayfayı Safari'de açar (QR kodla eşleşir, Ana Ekrana eklenir). Sadece Wi‑Fi. → [Ücretsiz sürüm: Safari ile](#ücretsiz-sürüm-safari-ile)
+- **iPad uygulaması:** Xcode ile iPad'e kurulur (ileride TestFlight/App Store). USB, Wi‑Fi ve Bluetooth; en düşük gecikme.
+
+Bağlantı şu yollardan biriyle kurulur, en hızlısı otomatik seçilir:
 
 | Yol | Nasıl çalışır | Beklenen gecikme* |
 |---|---|---|
 | **USB kablo** | Mac'teki `usbmuxd` (Xcode/Finder'ın iPad'le konuştuğu servis) üzerinden TCP tüneli. Ağ gerekmez. | birkaç ms |
 | **Wi‑Fi / IP** | Bonjour ile bulunur, UDP ile gönderilir. Aynı ağda olmasanız bile Apple'ın doğrudan Wi‑Fi'si (AirDrop'un kullandığı) devreye girer. | ~5–15 ms |
+| **Safari (web)** | iPad Safari'de Mac'in sunduğu sayfayı açar, dokunuşları WebSocket (TCP) ile yollar. Uygulama gerekmez; aynı Wi‑Fi şart. | Wi‑Fi'den biraz fazla |
 | **Bluetooth LE** | iPad bir BLE servisi yayınlar, Mac abone olur. Hiçbir ağ yokken yedek. | ~15–40 ms |
 
 \*Ölçüm değil, bu taşıma yöntemlerinin tipik değerleri. Gerçek değeri Mac menüsünde "~X ms" olarak görürsün (ping süresinin yarısı).
@@ -34,13 +40,18 @@ Temel karar: **iPad ham dokunuşları gönderir, jestleri Mac tanır.** Her mesa
 - Bluetooth sıkışırsa ara hareket kareleri birleştirilir, ama parmak *indi/kalktı* kareleri asla atılmaz (tıklamalar kaybolmaz).
 - Zamanlamalar (dokunma süresi, hız, momentum) iPad'in kendi saat damgalarıyla hesaplanır; ağdaki gecikme dalgalanması jestleri bozmaz.
 - Tüm ayarlar Mac'tedir; iPad uygulaması basit kalır.
+- Safari sürümü aynı protokolü konuşur: sayfa aynı ikili mesajları WebSocket üzerinden gönderir, Mac'te aynı çekirdeğe ve jest motoruna gider. Mac için sadece yeni bir bağlantı türüdür (`WebLink`).
 
 Klasörler:
 
 ```
-Packages/PadTrackCore/   Ortak Swift paketi: protokol (Wire.swift), jest motoru, ayarlar, testler
+Packages/PadTrackCore/   Ortak Swift paketi
+  Sources/PadTrackCore/    protokol (Wire.swift), jest motoru, ayarlar, HTTP/WebSocket ayrıştırıcı
+  Sources/PadTrackWeb/     Mac'in web sunucusu (Network.framework) ve QR eşleştirme
 iPad/                    iPad uygulaması (SwiftUI + UIKit dokunma yüzeyi)
 Mac/                     Menü çubuğu uygulaması (bağlantılar, olay enjeksiyonu, arayüz)
+WebClient/               iPad Safari sayfası (HTML/JS); Mac uygulamasının içine kopyalanır
+WebClientTests/          Sayfanın protokol ve bağlantı mantığı testleri (Node)
 project.yml              XcodeGen tanımı → PadTrack.xcodeproj üretir
 ```
 
@@ -72,7 +83,33 @@ iPad'den gelen dokunuşlar Mac'inde her yere tıklayabilir. Mac aynı ağda `_pa
 - Wi‑Fi/Bluetooth cihazı yalnızca senin onayladığın kalıcı cihaz kimliğiyle otomatik bağlanır; dokunuşlar sadece bu onaylı bağlantıdan kabul edilir.
 - Menüdeki "…" › **Onaylı cihazları unut** listeyi sıfırlar.
 
-Testler (jest motoru + protokol): `make test`
+Testler (jest motoru, protokol, web sunucusu, Safari sayfası): `make test`
+
+---
+
+## Ücretsiz sürüm: Safari ile
+
+iPad'e uygulama kurmadan, Xcode olmadan çalışır.
+
+**Mac:**
+1. [Releases](../../releases) sayfasından `PadTrack-…-macOS.zip`'i indir, aç, `PadTrack.app`'i Uygulamalar'a taşı.
+2. İlk açılışta macOS uygulamayı engeller (henüz Apple Developer imzalı değil): **Sistem Ayarları › Gizlilik ve Güvenlik** sayfasının altındaki **Yine de Aç**'a tıkla. Terminal ile: `xattr -dr com.apple.quarantine /Applications/PadTrack.app`
+3. **Erişilebilirlik** iznini ver (yukarıdaki Kurulum 3. adım).
+
+**iPad:**
+1. Mac ile aynı Wi‑Fi'ye bağlan.
+2. Mac menüsünde **Safari ile bağlan › iPad'i eşleştir (QR kod)**: QR kodu iPad'in Kamerası ile okut, Safari'de aç.
+3. Safari'de **Paylaş › Ana Ekrana Ekle**. Sonraki seferlerde simgeye dokunman yeter; sayfa tam ekran açılır ve Mac'e kendiliğinden bağlanır.
+
+Adres: Mac `http://<Mac-adı>.local:47391` adresinde yayın yapar. `.local` adı bazı kampüs/misafir ağlarında çözülmez; menüde **IP adresi**'ni seçip QR'ı onunla okut (IP değişirse yeniden okutman gerekir).
+
+### Safari'de güvenlik
+Aynı Wi‑Fi'deki herkes 47391 portuna ulaşabilir, bu yüzden:
+- Sayfayı açmak serbesttir ama **dokunuş göndermek için kimlik gerekir**: ilk seferde QR koddaki tek kullanımlık anahtar, sonra Mac'in o iPad'e verdiği uzun rastgele cihaz belirteci. Anahtarsız/belirteçsiz bağlantı 10 saniye içinde kapatılır.
+- QR anahtarı URL'nin `#` kısmındadır: Safari onu hiçbir isteğe koymaz, sayfa okuyup WebSocket üzerinden gösterir. Bir kez kullanılınca Mac yeni anahtar üretir; menüdeki **Yeni kod** da eskisini geçersiz kılar.
+- Mac belirteçlerin kendisini değil SHA-256 özetini saklar. **Onaylı cihazları unut** tüm Safari eşleşmelerini de siler ve açık sayfaları kapatır.
+- Başka bir siteden açılan sayfalar (farklı `Origin`) WebSocket'e bağlanamaz.
+- Trafik şifresiz `http`/`ws`'dir (yerel ağda geçerli sertifika yok): aynı ağda trafiği dinleyen biri belirteci görebilir. Güvenmediğin açık ağlarda kullanma; menüden **Safari ile bağlan**'ı kapatınca sunucu tamamen durur.
 
 ---
 
@@ -117,6 +154,10 @@ Hız, ivme, kaydırma hızı, doğal kaydırma ve her jest Mac menüsünden ayar
 | Masaüstü (Space) geçişi çalışmıyor | Sistem Ayarları › Klavye › Klavye Kısayolları › Mission Control'de "Sola/Sağa bir alan taşı" (⌃← / ⌃→) açık olmalı. |
 | Yakınlaştırma bazı uygulamalarda çalışmıyor | macOS'te sahte pinch için resmi API yok; PadTrack belgelenmemiş olay alanlarını kullanır. Desteklemeyen uygulamada menüden kapat. |
 | Bağlantı sürekli Bluetooth'ta kalıyor | Wi‑Fi'yi veya kabloyu kontrol et; daha hızlı yol bulunduğu anda kendiliğinden geçer. Elle seçilen cihaza (Bağlan) sabitlenir, otomatik yükseltme yapılmaz. |
+| Safari: sayfa açılmıyor | Mac menüsünde **Safari ile bağlan** açık ve hata yazmıyor mu? Aynı Wi‑Fi'de misiniz? `.local` adresi açılmıyorsa menüden **IP adresi**'ni seç. macOS Güvenlik Duvarı açıksa PadTrack için "gelen bağlantılara izin ver"i onayla. |
+| Safari: "Eşleştirme gerekli" | QR kod kullanılmış veya yenilenmiş olabilir: menüdeki güncel kodu okut. Ana Ekran simgesinden açıyorsan ve eşleşme Mac'te silindiyse, QR'ı okut ve açılan sayfayı Ana Ekrana yeniden ekle. |
+| Safari: "Mac menüsünde Bağlan'a tıkla" yazıyor | Sayfa eşleşmiş ama Mac onu seçmemiş: menüde **Otomatik bağlan** kapalı ya da "Bağlantıyı kes"e basılmış. Cihazın yanındaki **Bağlan**'a tıkla. |
+| Safari: ekran kapanıyor | Safari yerel `http` adreslerinde ekranı açık tutamıyor. iPad'de Ayarlar › Ekran ve Parlaklık › Otomatik Kilit süresini uzat. |
 
 ---
 
@@ -127,6 +168,8 @@ Hız, ivme, kaydırma hızı, doğal kaydırma ve her jest Mac menüsünden ayar
 - Mac uygulaması sandbox dışında çalışır (imleç olayı göndermek ve USB tüneli için zorunlu), bu yüzden Mac App Store'a uygun değildir; kişisel kullanım içindir.
 - Birden fazla iPad varsa ve otomatik bağlanma açıksa, kablo takılı cihaz önceliklidir.
 - Trafik şifrelenmez ve cihaz kimliği gizli bir anahtar değildir: aynı ağda trafiği dinleyip kimliği taklit eden kararlı bir saldırgana karşı koruma sağlamaz. Güvenmediğin açık ağlarda USB kullan veya otomatik bağlanmayı kapat.
+- Safari sürümü: sadece Wi‑Fi; TCP olduğu için kayıplı ağda gecikme uygulamadan daha dalgalı olabilir; Safari'de kenar kaydırmaları ve 4–5 parmak jestleri araya girebilir (Ana Ekrandan açmak ve iPad'in Jestler ayarını kapatmak çoğunu çözer); sayfa arka plana geçince bağlantı kapanır, öne gelince kendiliğinden döner.
+- GitHub Releases'taki Mac uygulaması Apple imzalı/onaylı (notarize) değildir: ilk açılışta "Yine de Aç" gerekir ve her güncellemeden sonra Erişilebilirlik iznini yenilemek gerekebilir.
 
 ---
 
@@ -143,3 +186,5 @@ Tüm sayılar little-endian. USB'de (TCP) her mesajın önünde 2 baytlık uzunl
 | `6 bye` | iki yön | bağlantıyı kapat |
 
 Beş parmaklı bir kare 59 bayttır; 120 Hz'de ~7 KB/s.
+
+**Safari:** sayfa `ws://<mac>:47391/ws` adresine bağlanır. İlk mesaj JSON metindir: `{"type":"pair","key":…}` (QR) veya `{"type":"resume","token":…}`; Mac `{"type":"welcome",…}` (eşleştirmede yeni `token` ile) ya da `{"type":"denied"}` + kapatma (kod 4001) ile cevap verir. Sonrasında her ikili WebSocket mesajı yukarıdaki tablodan tek bir mesajdır (uzunluk öneki yok). Taşıma türü `4 = web`.

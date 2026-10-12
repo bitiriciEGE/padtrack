@@ -8,9 +8,11 @@ project:
 open: project
 	open PadTrack.xcodeproj
 
-# Jest motoru ve protokol testleri (Xcode gerekli).
+# Jest motoru, protokol ve web sunucusu testleri (Xcode gerekli) + Safari sayfası testleri (Node varsa).
 test:
 	swift test --package-path Packages/PadTrackCore
+	@if command -v node >/dev/null 2>&1; then node --test WebClientTests/*.test.mjs; \
+	else echo "Node.js yok: Safari sayfası testleri atlandı (brew install node)"; fi
 
 clean:
-	rm -rf PadTrack.xcodeproj Packages/PadTrackCore/.build
+	rm -rf PadTrack.xcodeproj Packages/PadTrackCore/.build build
