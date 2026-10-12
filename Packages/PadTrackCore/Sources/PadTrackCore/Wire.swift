@@ -9,6 +9,9 @@ public enum PadTrackProtocol {
     public static let bonjourDeviceIDKey = "id"
     /// TCP port the iPad listens on; the Mac reaches it over the USB cable through usbmuxd.
     public static let usbPort: UInt16 = 47390
+    /// TCP port the Mac serves the Safari client on (HTTP page + WebSocket). Fixed, so a
+    /// Home Screen bookmark keeps working.
+    public static let webPort: UInt16 = 47391
     public static let bleServiceUUID = "7B6F1000-3C2A-4E8B-9D51-2F64A8C0E101"
     /// iPad -> Mac, notify. One message per notification.
     public static let bleFrameCharacteristicUUID = "7B6F1001-3C2A-4E8B-9D51-2F64A8C0E101"
@@ -21,17 +24,27 @@ public enum LinkTransport: UInt8, CaseIterable, Sendable {
     case usb = 1
     case wifi = 2
     case bluetooth = 3
+    /// The iPad's Safari page, connected to the Mac's WebSocket server over Wi‑Fi.
+    case web = 4
 
     public var displayName: String {
         switch self {
         case .usb: return "USB"
         case .wifi: return "Wi‑Fi"
         case .bluetooth: return "Bluetooth"
+        case .web: return "Safari"
         }
     }
 
     /// Lower is preferred (USB has the lowest latency, Bluetooth the highest).
-    public var priority: Int { Int(rawValue) }
+    public var priority: Int {
+        switch self {
+        case .usb: return 1
+        case .wifi: return 2
+        case .web: return 3
+        case .bluetooth: return 4
+        }
+    }
 }
 
 /// One finger on the iPad, in iPad points (origin top-left, y grows downward).

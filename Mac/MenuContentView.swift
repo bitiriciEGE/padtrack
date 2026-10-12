@@ -199,6 +199,7 @@ private struct DeviceRow: View {
         case .usb: return "cable.connector"
         case .wifi: return "wifi"
         case .bluetooth: return "dot.radiowaves.left.and.right"
+        case .web: return "safari"
         }
     }
 }
